@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-func testChannel(channel *model.Channel, request ChatRequest) (error, *OpenAIError) {
+func testChannel(channel *model.Channel, request ChatRequest) (err error, openaiErr *OpenAIError) {
 	switch channel.Type {
 	case common.ChannelTypePaLM:
 		fallthrough
@@ -24,19 +24,28 @@ func testChannel(channel *model.Channel, request ChatRequest) (error, *OpenAIErr
 		fallthrough
 	case common.ChannelTypeZhipu:
 		fallthrough
+	case common.ChannelTypeAli:
+		fallthrough
+	case common.ChannelType360:
+		fallthrough
 	case common.ChannelTypeXunfei:
 		return errors.New("该渠道类型当前版本不支持测试，请手动测试"), nil
 	case common.ChannelTypeAzure:
 		request.Model = "gpt-35-turbo"
+		defer func() {
+			if err != nil {
+				err = errors.New("请确保已在 Azure 上创建了 gpt-35-turbo 模型，并且 apiVersion 已正确填写！")
+			}
+		}()
 	default:
 		request.Model = "gpt-3.5-turbo"
 	}
 	requestURL := common.ChannelBaseURLs[channel.Type]
 	if channel.Type == common.ChannelTypeAzure {
-		requestURL = fmt.Sprintf("%s/openai/deployments/%s/chat/completions?api-version=2023-03-15-preview", channel.BaseURL, request.Model)
+		requestURL = fmt.Sprintf("%s/openai/deployments/%s/chat/completions?api-version=2023-03-15-preview", channel.GetBaseURL(), request.Model)
 	} else {
-		if channel.BaseURL != "" {
-			requestURL = channel.BaseURL
+		if channel.GetBaseURL() != "" {
+			requestURL = channel.GetBaseURL()
 		}
 		requestURL += "/v1/chat/completions"
 	}
@@ -174,7 +183,7 @@ func testAllChannels(notify bool) error {
 				err = errors.New(fmt.Sprintf("响应时间 %.2fs 超过阈值 %.2fs", float64(milliseconds)/1000.0, float64(disableThreshold)/1000.0))
 				disableChannel(channel.Id, channel.Name, err.Error())
 			}
-			if shouldDisableChannel(openaiErr) {
+			if shouldDisableChannel(openaiErr, -1) {
 				disableChannel(channel.Id, channel.Name, err.Error())
 			}
 			channel.UpdateResponseTime(milliseconds)

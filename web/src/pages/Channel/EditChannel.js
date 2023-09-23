@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Button, Form, Header, Input, Message, Segment } from 'semantic-ui-react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { API, showError, showInfo, showSuccess, verifyJSON } from '../../helpers';
 import { CHANNEL_OPTIONS } from '../../constants';
 
@@ -9,6 +9,20 @@ const MODEL_MAPPING_EXAMPLE = {
   'gpt-4-0314': 'gpt-4',
   'gpt-4-32k-0314': 'gpt-4-32k'
 };
+
+function type2secretPrompt(type) {
+  // inputs.type === 15 ? '按照如下格式输入：APIKey|SecretKey' : (inputs.type === 18 ? '按照如下格式输入：APPID|APISecret|APIKey' : '请输入渠道对应的鉴权密钥')
+  switch (type) {
+    case 15:
+      return '按照如下格式输入：APIKey|SecretKey';
+    case 18:
+      return '按照如下格式输入：APPID|APISecret|APIKey';
+    case 22:
+      return '按照如下格式输入：APIKey-AppId，例如：fastgpt-0sp2gtvfdgyi4k30jwlgwf1i-64f335d84283f05518e9e041';
+    default:
+      return '请输入渠道对应的鉴权密钥';
+  }
+}
 
 const EditChannel = () => {
   const params = useParams();
@@ -19,7 +33,7 @@ const EditChannel = () => {
   const handleCancel = () => {
     navigate('/channel');
   };
-  
+
   const originInputs = {
     name: '',
     type: 1,
@@ -53,13 +67,16 @@ const EditChannel = () => {
           localModels = ['ERNIE-Bot', 'ERNIE-Bot-turbo', 'Embedding-V1'];
           break;
         case 17:
-          localModels = ['qwen-v1', 'qwen-plus-v1'];
+          localModels = ['qwen-v1', 'qwen-plus-v1', 'text-embedding-v1'];
           break;
         case 16:
           localModels = ['chatglm_pro', 'chatglm_std', 'chatglm_lite'];
           break;
         case 18:
           localModels = ['SparkDesk'];
+          break;
+        case 19:
+          localModels = ['360GPT_S2_V9', 'embedding-bert-512-v1', 'embedding_s1_v1', 'semantic_similarity_s1_v1', '360GPT_S2_V9.4'];
           break;
       }
       setInputs((inputs) => ({ ...inputs, models: localModels }));
@@ -157,14 +174,14 @@ const EditChannel = () => {
       return;
     }
     let localInputs = inputs;
-    if (localInputs.base_url.endsWith('/')) {
+    if (localInputs.base_url && localInputs.base_url.endsWith('/')) {
       localInputs.base_url = localInputs.base_url.slice(0, localInputs.base_url.length - 1);
     }
     if (localInputs.type === 3 && localInputs.other === '') {
       localInputs.other = '2023-06-01-preview';
     }
-    if (localInputs.model_mapping === '') {
-      localInputs.model_mapping = '{}';
+    if (localInputs.type === 18 && localInputs.other === '') {
+      localInputs.other = 'v2.1';
     }
     let res;
     localInputs.models = localInputs.models.join(',');
@@ -185,6 +202,24 @@ const EditChannel = () => {
     } else {
       showError(message);
     }
+  };
+
+  const addCustomModel = () => {
+    if (customModel.trim() === '') return;
+    if (inputs.models.includes(customModel)) return;
+    let localModels = [...inputs.models];
+    localModels.push(customModel);
+    let localModelOptions = [];
+    localModelOptions.push({
+      key: customModel,
+      text: customModel,
+      value: customModel
+    });
+    setModelOptions(modelOptions => {
+      return [...modelOptions, ...localModelOptions];
+    });
+    setCustomModel('');
+    handleInputChange(null, { name: 'models', value: localModels });
   };
 
   return (
@@ -275,6 +310,34 @@ const EditChannel = () => {
               options={groupOptions}
             />
           </Form.Field>
+          {
+            inputs.type === 18 && (
+              <Form.Field>
+                <Form.Input
+                  label='模型版本'
+                  name='other'
+                  placeholder={'请输入星火大模型版本，注意是接口地址中的版本号，例如：v2.1'}
+                  onChange={handleInputChange}
+                  value={inputs.other}
+                  autoComplete='new-password'
+                />
+              </Form.Field>
+            )
+          }
+          {
+            inputs.type === 21 && (
+              <Form.Field>
+                <Form.Input
+                  label='知识库 ID'
+                  name='other'
+                  placeholder={'请输入知识库 ID，例如：123456'}
+                  onChange={handleInputChange}
+                  value={inputs.other}
+                  autoComplete='new-password'
+                />
+              </Form.Field>
+            )
+          }
           <Form.Field>
             <Form.Dropdown
               label='模型'
@@ -302,28 +365,18 @@ const EditChannel = () => {
             }}>清除所有模型</Button>
             <Input
               action={
-                <Button type={'button'} onClick={() => {
-                  if (customModel.trim() === '') return;
-                  if (inputs.models.includes(customModel)) return;
-                  let localModels = [...inputs.models];
-                  localModels.push(customModel);
-                  let localModelOptions = [];
-                  localModelOptions.push({
-                    key: customModel,
-                    text: customModel,
-                    value: customModel
-                  });
-                  setModelOptions(modelOptions => {
-                    return [...modelOptions, ...localModelOptions];
-                  });
-                  setCustomModel('');
-                  handleInputChange(null, { name: 'models', value: localModels });
-                }}>填入</Button>
+                <Button type={'button'} onClick={addCustomModel}>填入</Button>
               }
               placeholder='输入自定义模型名称'
               value={customModel}
               onChange={(e, { value }) => {
                 setCustomModel(value);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  addCustomModel();
+                  e.preventDefault();
+                }
               }}
             />
           </div>
@@ -355,7 +408,7 @@ const EditChannel = () => {
                 label='密钥'
                 name='key'
                 required
-                placeholder={inputs.type === 15 ? '请输入 access token，当前版本暂不支持自动刷新，请每 30 天更新一次' : (inputs.type === 18 ? '按照如下格式输入：APPID|APISecret|APIKey' : '请输入渠道对应的鉴权密钥')}
+                placeholder={type2secretPrompt(inputs.type)}
                 onChange={handleInputChange}
                 value={inputs.key}
                 autoComplete='new-password'
@@ -373,12 +426,26 @@ const EditChannel = () => {
             )
           }
           {
-            inputs.type !== 3 && inputs.type !== 8 && (
+            inputs.type !== 3 && inputs.type !== 8 && inputs.type !== 22 && (
               <Form.Field>
                 <Form.Input
                   label='代理'
                   name='base_url'
                   placeholder={'此项可选，用于通过代理站来进行 API 调用，请输入代理站地址，格式为：https://domain.com'}
+                  onChange={handleInputChange}
+                  value={inputs.base_url}
+                  autoComplete='new-password'
+                />
+              </Form.Field>
+            )
+          }
+          {
+            inputs.type === 22 && (
+              <Form.Field>
+                <Form.Input
+                  label='私有部署地址'
+                  name='base_url'
+                  placeholder={'请输入私有部署地址，格式为：https://fastgpt.run/api/openapi'}
                   onChange={handleInputChange}
                   value={inputs.base_url}
                   autoComplete='new-password'
